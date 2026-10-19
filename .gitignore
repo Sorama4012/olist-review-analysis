@@ -1,0 +1,6 @@
+data/
+olist.db
+_report_tmp.xlsx
+~$*
+.ipynb_checkpoints/
+__pycache__/
