@@ -27,20 +27,54 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 import pandas as pd
+from matplotlib import font_manager
 
 DATA = Path("data")
 IMG = Path("images")
 IMG.mkdir(exist_ok=True)
 
-# Палитра: синий — «вовремя / база», оранжевый — «опоздание / проблема»
-BLUE, ORANGE, GRAY = "#2a78d6", "#eb6834", "#8a8984"
+# --- Единый стиль графиков ---------------------------------------------------
+# Синий — «вовремя / норма», оранжевый — «опоздание / проблема», серый — фон.
+BLUE, BLUE_L = "#2a78d6", "#a9c9f0"
+ORANGE, ORANGE_L = "#eb6834", "#f6bfa3"
+GRAY, GRAY_L = "#8a8984", "#dcdbd6"
+INK, MUTED = "#1f1f1e", "#6b6a66"
+FONT = "Segoe UI" if any(f.name == "Segoe UI" for f in font_manager.fontManager.ttflist) else "DejaVu Sans"
+
 plt.rcParams.update({
-    "figure.dpi": 110, "savefig.dpi": 150, "savefig.bbox": "tight",
-    "axes.spines.top": False, "axes.spines.right": False,
-    "axes.edgecolor": "#b5b4ae", "axes.grid": True, "grid.color": "#e6e5e0",
-    "grid.linewidth": 0.8, "axes.axisbelow": True, "font.size": 10,
-    "axes.titlesize": 12, "axes.titleweight": "bold", "axes.titlelocation": "left",
+    "font.family": [FONT, "Segoe UI Symbol", "DejaVu Sans"],  # запасные шрифты для ★ и − "font.size": 10.5, "text.color": INK,
+    "axes.labelcolor": MUTED, "axes.labelsize": 10, "xtick.color": MUTED, "ytick.color": MUTED,
+    "xtick.major.size": 0, "ytick.major.size": 0, "xtick.major.pad": 6, "ytick.major.pad": 6,
+    "axes.spines.top": False, "axes.spines.right": False, "axes.spines.left": False,
+    "axes.edgecolor": GRAY_L, "axes.grid": True, "axes.grid.axis": "y",
+    "grid.color": "#ecebe7", "grid.linewidth": 0.8, "axes.axisbelow": True,
+    "figure.facecolor": "white", "axes.facecolor": "white", "legend.frameon": False,
+    "figure.dpi": 110, "savefig.dpi": 200, "savefig.bbox": "tight", "savefig.pad_inches": 0.3,
 })
+
+
+def headline(ax, title, subtitle=None, lift=0):
+    # Заголовок-вывод + пояснение, выровненные по левому краю графика
+    ax.annotate(title, xy=(0, 1), xycoords="axes fraction", xytext=(0, (44 if subtitle else 18) + lift),
+                textcoords="offset points", fontsize=15, fontweight="bold", color=INK, va="bottom")
+    if subtitle:
+        ax.annotate(subtitle, xy=(0, 1), xycoords="axes fraction", xytext=(0, 18 + lift),
+                    textcoords="offset points", fontsize=10.5, color=MUTED, va="bottom")
+
+
+def source(ax, text="Данные: Olist, доставленные заказы с отзывом, 2016–2018"):
+    ax.annotate(text, xy=(0, 0), xycoords="figure fraction", xytext=(8, 4),
+                textcoords="offset points", fontsize=8.5, color=GRAY)
+
+
+def ru(x, nd=1):
+    # Число с запятой: 4.29 -> «4,3»
+    return f"{x:.{nd}f}".replace(".", ",").replace("-", "−")
+
+
+COMMA = mtick.FuncFormatter(lambda v, _: ru(v))
+
+
 pd.set_option("display.float_format", "{:,.2f}".format)
 """)
 
@@ -170,16 +204,36 @@ md("""
 code("""
 by_delay = d.groupby("delay_days").agg(orders=("score", "size"), avg_score=("score", "mean"))
 curve = by_delay[(by_delay.index.to_series().between(-30, 30)) & (by_delay["orders"] >= 30)]
+x, y = curve.index, curve["avg_score"]
+early, late = x <= 0, x >= 0
 
-fig, ax = plt.subplots(figsize=(9, 4.2))
-early, late = curve[curve.index <= 0], curve[curve.index >= 0]
-ax.plot(early.index, early["avg_score"], color=BLUE, lw=2, marker="o", ms=4, label="вовремя / раньше срока")
-ax.plot(late.index, late["avg_score"], color=ORANGE, lw=2, marker="o", ms=4, label="с опозданием")
-ax.axvline(0, color=GRAY, lw=1, ls="--")
-ax.text(0.4, 1.25, "обещанная дата", color="#52514e", fontsize=9)
-ax.set(xlabel="дней относительно обещанной даты (− раньше, + позже)", ylabel="средняя оценка",
-       ylim=(1, 5), title="После обещанной даты оценка обваливается: +3 дня — 2,7, неделя опоздания — ниже 2")
-ax.legend(frameon=False, loc="lower left")
+fig, ax = plt.subplots(figsize=(10, 5))
+ax.axvspan(0, 30.5, color=ORANGE, alpha=0.05, lw=0)
+ax.fill_between(x[early], y[early], 1, color=BLUE, alpha=0.10, lw=0)
+ax.fill_between(x[late], y[late], 1, color=ORANGE, alpha=0.14, lw=0)
+ax.plot(x[early], y[early], color=BLUE, lw=2.6, solid_capstyle="round")
+ax.plot(x[late], y[late], color=ORANGE, lw=2.6, solid_capstyle="round")
+ax.axvline(0, color=INK, lw=1)
+
+ax.text(-15, 4.75, "РАНЬШЕ СРОКА", color=BLUE, fontsize=9.5, fontweight="bold", ha="center")
+ax.text(15, 4.75, "ОПОЗДАНИЕ", color=ORANGE, fontsize=9.5, fontweight="bold", ha="center")
+ax.text(0.4, 1.12, "обещанная дата", color=INK, fontsize=9)
+
+for day, text, color, dx, dy in [(-20, "≈ 4,3 при любой ранней доставке", BLUE, -30, -34),
+                                 (3, f"+3 дня → {ru(y[3])}", ORANGE, 14, 6),
+                                 (7, f"неделя → {ru(y[7])}", ORANGE, 14, 8)]:
+    ax.scatter(day, y[day], s=70, color=color, edgecolor="white", linewidth=2, zorder=5)
+    ax.annotate(text, (day, y[day]), xytext=(dx, dy), textcoords="offset points",
+                fontsize=10, fontweight="bold", color=color)
+
+ax.set_xlim(-30.5, 30.5)
+ax.set_ylim(1, 5)
+ax.set_xticks(range(-30, 31, 5), [f"{t:+d}" if t else "0" for t in range(-30, 31, 5)])
+ax.set_yticks([1, 2, 3, 4, 5], ["1 ★", "2 ★", "3 ★", "4 ★", "5 ★"])
+ax.set_xlabel("дней относительно обещанной даты доставки")
+headline(ax, "Опоздание на 3 дня стоит покупателю полтора балла",
+         "Средняя оценка отзыва в зависимости от того, на сколько дней раньше или позже срока пришёл заказ")
+source(ax)
 fig.savefig(IMG / "01_delay_vs_score.png")
 plt.show()
 
@@ -199,23 +253,37 @@ summary = d.groupby("is_late").agg(orders=("score", "size"), avg_score=("score",
 summary["bad_pct"] *= 100
 display(summary.round(2))
 
-# Распределение оценок 1–5 в каждой группе
+# Распределение оценок 1–5 в каждой группе, 100%-я горизонтальная полоса
 dist = (pd.crosstab(d["is_late"], d["score"].round().astype(int), normalize="index") * 100
         ).rename(index={False: "вовремя", True: "с опозданием"})
+score_colors = {1: ORANGE, 2: ORANGE_L, 3: GRAY_L, 4: BLUE_L, 5: BLUE}
 
-fig, ax = plt.subplots(figsize=(9, 4))
-x = range(1, 6)
-w = 0.38
-ax.bar([i - w / 2 for i in x], dist.loc["вовремя"], width=w - 0.02, color=BLUE, label="вовремя")
-ax.bar([i + w / 2 for i in x], dist.loc["с опозданием"], width=w - 0.02, color=ORANGE, label="с опозданием")
-for i in x:
-    for shift, grp in ((-w / 2, "вовремя"), (w / 2, "с опозданием")):
-        ax.text(i + shift, dist.loc[grp, i] + 1, f"{dist.loc[grp, i]:.0f}%", ha="center", fontsize=8, color="#52514e")
-ax.set_xticks(list(x), [f"{i} ★" for i in x])
-ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
-ax.set(ylabel="доля заказов группы", title=f"При опоздании больше половины оценок — единица "
-       f"(средняя {summary.loc['с опозданием', 'avg_score']:.2f} против {summary.loc['вовремя', 'avg_score']:.2f})")
-ax.legend(frameon=False)
+fig, ax = plt.subplots(figsize=(10, 3.4))
+rows = ["с опозданием", "вовремя"]  # снизу вверх
+for r, grp in enumerate(rows):
+    left = 0
+    for s in range(1, 6):
+        v = dist.loc[grp, s]
+        ax.barh(r, v, left=left, height=0.62, color=score_colors[s], edgecolor="white", linewidth=2,
+                label=f"{s} ★" if r == 0 else None)
+        if v >= 5:
+            ax.text(left + v / 2, r, f"{v:.0f}%", ha="center", va="center", fontsize=10.5, fontweight="bold",
+                    color="white" if s in (1, 5) else INK)
+        left += v
+labels = [g.capitalize() + "\\n" + f"{ru(summary.loc[g, 'avg_score'], 2)} ★ в среднем · "
+          + f"{summary.loc[g, 'orders']:,}".replace(",", " ") + " зак."
+          for g in rows]
+ax.set_yticks([0, 1], labels)
+ax.tick_params(axis="y", labelsize=10.5, labelcolor=INK)
+ax.set_xlim(0, 100)
+ax.set_xticks([])
+ax.grid(False)
+ax.spines["bottom"].set_visible(False)
+ax.legend(ncol=5, loc="lower right", bbox_to_anchor=(1, 1.02), handlelength=1, handleheight=1,
+          columnspacing=1.2, fontsize=9.5)
+headline(ax, "При опоздании больше половины оценок — единица",
+         "Распределение оценок отзывов, % заказов в группе")
+source(ax)
 fig.savefig(IMG / "02_score_distribution.png")
 plt.show()
 """)
@@ -231,25 +299,47 @@ monthly = d.groupby("month").agg(orders=("score", "size"), late_pct=("is_late", 
                                  avg_score=("score", "mean"))
 monthly = monthly[monthly["orders"] >= 500]  # отрезаем неполные месяцы на краях
 monthly["late_pct"] *= 100
+corr = monthly["late_pct"].corr(monthly["avg_score"])
 
-fig, axes = plt.subplots(2, 1, figsize=(9, 5.6), sharex=True, gridspec_kw={"hspace": 0.25})
-idx = monthly.index.astype(str)
-axes[0].plot(idx, monthly["late_pct"], color=ORANGE, lw=2, marker="o", ms=4)
-axes[0].yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
-axes[0].set(ylabel="доля опозданий", title="Доля опозданий растёт — оценка падает в те же месяцы")
-axes[1].plot(idx, monthly["avg_score"], color=BLUE, lw=2, marker="o", ms=4)
-axes[1].set(ylabel="средняя оценка")
-for ax in axes:
-    for m in ("2017-11", "2018-03"):
-        ax.axvline(m, color=GRAY, lw=1, ls="--")
-axes[0].text("2017-11", monthly["late_pct"].max() * 0.95, " Black Friday", fontsize=8, color="#52514e")
-axes[0].text("2018-03", monthly["late_pct"].max() * 0.95, " февраль–март 2018", fontsize=8, color="#52514e")
-axes[1].tick_params(axis="x", rotation=45)
+MON = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
+xs = range(len(monthly))
+xlabels = [f"{MON[p.month - 1]}\\n{p.year}" if p.month == 1 or i == 0 else MON[p.month - 1]
+           for i, p in enumerate(monthly.index)]
+pos = {str(p): i for i, p in enumerate(monthly.index)}
+
+fig, (a1, a2) = plt.subplots(2, 1, figsize=(10, 6.2), sharex=True, gridspec_kw={"hspace": 0.35})
+for a in (a1, a2):  # пиковые периоды
+    a.axvspan(pos["2017-11"] - 0.45, pos["2017-11"] + 0.45, color=ORANGE, alpha=0.08, lw=0)
+    a.axvspan(pos["2018-02"] - 0.45, pos["2018-03"] + 0.45, color=ORANGE, alpha=0.08, lw=0)
+
+a1.fill_between(xs, monthly["late_pct"], 0, color=ORANGE, alpha=0.15, lw=0)
+a1.plot(xs, monthly["late_pct"], color=ORANGE, lw=2.4)
+a1.set_ylim(0, 22)
+a1.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
+a1.set_title("Доля заказов с опозданием", loc="left", fontsize=10.5, fontweight="bold", color=INK, pad=6)
+for m, text in [("2017-11", "Black Friday"), ("2018-03", "март 2018")]:
+    v = monthly.loc[m, "late_pct"]
+    a1.scatter(pos[m], v, s=60, color=ORANGE, edgecolor="white", linewidth=2, zorder=5)
+    a1.annotate(f"{text}: {ru(v)}%", (pos[m], v), xytext=(-10, 4), textcoords="offset points", ha="right",
+                fontsize=9.5, fontweight="bold", color=ORANGE)
+
+a2.plot(xs, monthly["avg_score"], color=BLUE, lw=2.4)
+a2.set_ylim(3.6, 4.5)
+a2.yaxis.set_major_formatter(COMMA)
+a2.set_title("Средняя оценка", loc="left", fontsize=10.5, fontweight="bold", color=INK, pad=6)
+for m in ("2017-11", "2018-03"):
+    v = monthly.loc[m, "avg_score"]
+    a2.scatter(pos[m], v, s=60, color=BLUE, edgecolor="white", linewidth=2, zorder=5)
+    a2.annotate(ru(v, 2), (pos[m], v), xytext=(10, -4), textcoords="offset points",
+                fontsize=9.5, fontweight="bold", color=BLUE)
+a2.set_xticks(list(xs), xlabels)
+headline(a1, "Когда логистика не справляется с пиком спроса, оценки падают",
+         f"Помесячно, январь 2017 — август 2018. Корреляция двух рядов: {ru(corr, 2)}", lift=22)
+source(a2)
 fig.savefig(IMG / "03_monthly_late_vs_score.png")
 plt.show()
 
-print("Корреляция доли опозданий и средней оценки по месяцам:",
-      round(monthly["late_pct"].corr(monthly["avg_score"]), 2))
+print("Корреляция доли опозданий и средней оценки по месяцам:", round(corr, 2))
 monthly.round(2).T
 """)
 
@@ -260,29 +350,50 @@ md("""
 md("### 3.3 География: опоздания концентрируются на северо-востоке")
 
 code("""
+STATE_RU = {"AC": "Акри", "AL": "Алагоас", "AM": "Амазонас", "AP": "Амапа", "BA": "Баия", "CE": "Сеара",
+            "DF": "Федеральный округ", "ES": "Эспириту-Санту", "GO": "Гояс", "MA": "Мараньян",
+            "MG": "Минас-Жерайс", "MS": "Мату-Гросу-ду-Сул", "MT": "Мату-Гросу", "PA": "Пара", "PB": "Параиба",
+            "PE": "Пернамбуку", "PI": "Пиауи", "PR": "Парана", "RJ": "Рио-де-Жанейро",
+            "RN": "Риу-Гранди-ду-Норти", "RO": "Рондония", "RR": "Рорайма", "RS": "Риу-Гранди-ду-Сул",
+            "SC": "Санта-Катарина", "SE": "Сержипи", "SP": "Сан-Паулу", "TO": "Токантинс"}
+
 states = d.groupby("customer_state").agg(orders=("score", "size"), late_pct=("is_late", "mean"),
                                          avg_score=("score", "mean"))
 states["late_pct"] *= 100
 states = states[states["orders"] >= 100].sort_values("late_pct")
 overall = d["is_late"].mean() * 100
+top5 = states.index[-5:]
 
-fig, ax = plt.subplots(figsize=(9, 6))
-colors = [ORANGE if v > overall * 1.5 else BLUE for v in states["late_pct"]]
-ax.barh(states.index, states["late_pct"], color=colors, height=0.7)
-ax.axvline(overall, color=GRAY, lw=1, ls="--")
-ax.text(overall + 0.2, -0.9, f"в среднем {overall:.1f}%", fontsize=8, color="#52514e")
-for i, (v, s) in enumerate(zip(states["late_pct"], states["avg_score"])):
-    ax.text(v + 0.2, i, f"{v:.1f}%  ·  ★ {s:.2f}", va="center", fontsize=8, color="#52514e")
+fig, ax = plt.subplots(figsize=(10, 7.4))
+colors = [ORANGE if s in top5 else BLUE if s == "SP" else GRAY_L for s in states.index]
+ax.barh(range(len(states)), states["late_pct"], color=colors, height=0.72)
+ax.axvline(overall, color=INK, lw=1, ls=(0, (3, 3)), zorder=1)
+ax.annotate(f"в среднем {ru(overall)}%", (overall, len(states) - 0.4), xytext=(5, 0),
+            textcoords="offset points", fontsize=9, color=INK, va="bottom")
+for i, (s, v) in enumerate(states["late_pct"].items()):
+    hl = s in top5 or s == "SP"
+    ax.text(v + 0.3, i, f"{ru(v)}%", va="center", fontsize=9.5,
+            fontweight="bold" if hl else "normal", color=ORANGE if s in top5 else BLUE if s == "SP" else MUTED,
+            bbox=dict(fc="white", ec="none", pad=1), zorder=3)
+ax.set_yticks(range(len(states)), [f"{STATE_RU[s]} ({s})" for s in states.index])
+for lbl, s in zip(ax.get_yticklabels(), states.index):
+    if s in top5 or s == "SP":
+        lbl.set_color(INK)
+        lbl.set_fontweight("bold")
+ax.set_xlim(0, states["late_pct"].max() * 1.12)
 ax.xaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
-ax.set(xlabel="доля заказов с опозданием", xlim=(0, states["late_pct"].max() * 1.3),
-       title="В AL и MA опаздывает каждый 5–6-й заказ — в 4–5 раз чаще, чем в SP")
 ax.grid(axis="y", visible=False)
+ax.grid(axis="x", visible=True)
+ax.spines["bottom"].set_visible(False)
+headline(ax, f"Северо-восток получает опоздание в {ru(states['late_pct'].max() / overall)} раза чаще среднего",
+         "Доля доставленных заказов с опозданием по штату покупателя (штаты с ≥ 100 заказами)")
+source(ax)
 fig.savefig(IMG / "04_late_by_state.png")
 plt.show()
 """)
 
 md("""
-Оранжевым выделены штаты, где опаздывают в 1,5+ раза чаще среднего (>10%). Лидеры — Алагоас (AL), Мараньян (MA), Сержипи (SE), Пиауи (PI), Сеара (CE): северо-восток, далеко от продавцов, которые в основном сидят в Сан-Паулу. Отдельно выделяется Рио (RJ): 12% опозданий при огромном объёме заказов. (Цифры чуть отличаются от запроса 4 в SQL: здесь в знаменателе только заказы с отзывом.) Подпись справа показывает среднюю оценку: чем больше опозданий, тем ниже звёзды. Обещанный срок для этих штатов занижен относительно реальной логистики.
+Оранжевым выделены пять штатов с самой высокой долей опозданий — Алагоас (AL), Мараньян (MA), Сержипи (SE), Пиауи (PI), Сеара (CE): все на северо-востоке, далеко от продавцов, которые в основном сидят в Сан-Паулу. Синим — сам Сан-Паулу (SP) для сравнения: 4,4% опозданий. Отдельно выделяется Рио (RJ): 12% опозданий при огромном объёме заказов. (Цифры чуть отличаются от запроса 4 в SQL: здесь в знаменателе только заказы с отзывом.) Обещанный срок для дальних штатов занижен относительно реальной логистики.
 """)
 
 md("""
